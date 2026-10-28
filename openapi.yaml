@@ -1,0 +1,998 @@
+openapi: 3.1.0
+info:
+  title: REPLATE API
+  version: 1.0.0
+  description: >-
+    Frontend-backend integration contract for REPLATE, a surplus-food redistribution
+    and resource-management platform. JSON uses camelCase. All timestamps are ISO 8601
+    strings with timezone offsets (UTC `Z` preferred). IDs are opaque UUID strings.
+servers:
+  - url: http://localhost:4000/api
+    description: Local Express API
+security:
+  - sessionCookie: []
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Shared Catalog
+  - name: Donor
+  - name: Recipient
+  - name: Admin / Operations
+  - name: Volunteer
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      security: []
+      summary: API and database health check
+      responses:
+        '200':
+          description: API is available
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [status, database, timestamp]
+                    properties:
+                      status: { type: string, const: ok }
+                      database: { type: string, enum: [ok, unavailable] }
+                      timestamp: { type: string, format: date-time }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      security: []
+      summary: Sign in and establish an HTTP-only session cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Signed in; server sets an HTTP-only session cookie
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: Session cookie; frontend must not read or store it manually.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [user]
+                    properties:
+                      user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: End current session and clear session cookie
+      responses:
+        '204': { description: Signed out successfully }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUser
+      summary: Return current authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [user]
+                    properties:
+                      user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /food-types:
+    get:
+      tags: [Shared Catalog]
+      operationId: listFoodTypes
+      security: []
+      summary: List food types for forms and filters
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: categoryId
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Food type catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/FoodType' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /donor/dashboard:
+    get:
+      tags: [Donor]
+      operationId: getDonorDashboard
+      summary: Donor dashboard KPIs and latest batches
+      responses:
+        '200':
+          description: Donor dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/DonorDashboard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /donor/locations:
+    get:
+      tags: [Donor]
+      operationId: listDonorLocations
+      summary: List locations belonging to the signed-in donor
+      responses:
+        '200':
+          description: Donor locations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Location' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /donor/batches:
+    get:
+      tags: [Donor]
+      operationId: listDonorBatches
+      summary: List batches created by the signed-in donor
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/BatchStatus' }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paged donor batches
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PagedFoodBatchResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Donor]
+      operationId: createFoodBatch
+      summary: Register a surplus food batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFoodBatchInput' }
+      responses:
+        '201':
+          description: Batch created and queued for inspection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/FoodBatch' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /recipient/dashboard:
+    get:
+      tags: [Recipient]
+      operationId: getRecipientDashboard
+      summary: Recipient dashboard KPIs and latest requests/allocations
+      responses:
+        '200':
+          description: Recipient dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/RecipientDashboard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /recipient/available-food:
+    get:
+      tags: [Recipient]
+      operationId: listAvailableFood
+      summary: Find approved food batches that still have available quantity
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: foodTypeId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: categoryId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: expiresWithinHours
+          schema: { type: integer, minimum: 1, maximum: 168 }
+      responses:
+        '200':
+          description: Paged food search results
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFoodBatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /recipient/requests:
+    get:
+      tags: [Recipient]
+      operationId: listRecipientRequests
+      summary: List food requests created by the signed-in recipient
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/FoodRequestStatus' }
+      responses:
+        '200':
+          description: Paged recipient requests
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFoodRequestResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Recipient]
+      operationId: createFoodRequest
+      summary: Submit a request for a food type and quantity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFoodRequestInput' }
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/FoodRequest' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /recipient/allocations:
+    get:
+      tags: [Recipient]
+      operationId: listRecipientAllocations
+      summary: List allocations for the signed-in recipient
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/AllocationStatus' }
+      responses:
+        '200':
+          description: Paged recipient allocations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedAllocationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/dashboard:
+    get:
+      tags: [Admin / Operations]
+      operationId: getAdminDashboard
+      summary: Global operational dashboard
+      responses:
+        '200':
+          description: Admin dashboard KPIs, trends, and operational alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminDashboard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/batches:
+    get:
+      tags: [Admin / Operations]
+      operationId: listAllBatches
+      summary: Search all batches for operations and inspection
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/BatchStatus' }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paged batches
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFoodBatchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/batches/{batchId}/inspection:
+    post:
+      tags: [Admin / Operations]
+      operationId: inspectFoodBatch
+      summary: Record inspection result and approve/reject a batch
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionInput' }
+      responses:
+        '200':
+          description: Inspection recorded; batch status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [inspection, batch]
+                    properties:
+                      inspection: { $ref: '#/components/schemas/Inspection' }
+                      batch: { $ref: '#/components/schemas/FoodBatch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/requests:
+    get:
+      tags: [Admin / Operations]
+      operationId: listAllFoodRequests
+      summary: Search food requests across recipient organizations
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/FoodRequestStatus' }
+        - in: query
+          name: priority
+          schema: { $ref: '#/components/schemas/Priority' }
+      responses:
+        '200':
+          description: Paged food requests
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFoodRequestResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/allocations:
+    post:
+      tags: [Admin / Operations]
+      operationId: createAllocation
+      summary: Allocate available inspected food to a recipient request
+      description: >-
+        Must run in a database transaction, lock the selected batch row, verify that
+        the request is open and food type/unit match, verify expiry and available
+        quantity, decrement available quantity, create allocation, and update request
+        fulfilment status atomically. Never trust the frontend to enforce stock rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAllocationInput' }
+      responses:
+        '201':
+          description: Allocation committed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Allocation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/pickups:
+    post:
+      tags: [Admin / Operations]
+      operationId: schedulePickup
+      summary: Assign a volunteer and vehicle to an allocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePickupInput' }
+      responses:
+        '201':
+          description: Pickup scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Pickup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/volunteers:
+    get:
+      tags: [Admin / Operations]
+      operationId: listAssignableVolunteers
+      summary: List active volunteers for pickup assignment dropdowns
+      responses:
+        '200':
+          description: Active volunteers available for assignment
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/VolunteerOption' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/vehicles:
+    get:
+      tags: [Admin / Operations]
+      operationId: listAssignableVehicles
+      summary: List vehicles for pickup assignment dropdowns
+      responses:
+        '200':
+          description: Available vehicles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/VehicleOption' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/analytics:
+    get:
+      tags: [Admin / Operations]
+      operationId: getAdminAnalytics
+      summary: Aggregated impact metrics and trend data for the admin UI
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Analytics generated from PostgreSQL queries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminAnalytics' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /volunteer/pickups:
+    get:
+      tags: [Volunteer]
+      operationId: listVolunteerPickups
+      summary: List pickups assigned to the signed-in volunteer
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/PickupStatus' }
+      responses:
+        '200':
+          description: Paged volunteer pickups
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedPickupResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /volunteer/pickups/{pickupId}/status:
+    patch:
+      tags: [Volunteer]
+      operationId: updatePickupStatus
+      summary: Update progress for an assigned pickup
+      parameters:
+        - in: path
+          name: pickupId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePickupStatusInput' }
+      responses:
+        '200':
+          description: Pickup updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Pickup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: replate_session
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      in: query
+      name: pageSize
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    BatchId:
+      in: path
+      name: batchId
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    UserRole:
+      type: string
+      enum: [DONOR, RECIPIENT, VOLUNTEER, ADMIN]
+    User:
+      type: object
+      required: [id, name, email, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/UserRole' }
+        organizationName: { type: [string, 'null'] }
+        avatarUrl: { type: [string, 'null'], format: uri }
+    FoodCategory:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    FoodType:
+      type: object
+      required: [id, name, category, shelfLifeHours, requiresRefrigeration, allergens, storageRequirements]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        category: { $ref: '#/components/schemas/FoodCategory' }
+        shelfLifeHours: { type: number, minimum: 0 }
+        requiresRefrigeration: { type: boolean }
+        description: { type: [string, 'null'] }
+        allergens:
+          type: array
+          items: { type: string }
+        storageRequirements:
+          type: array
+          items: { type: string }
+    Location:
+      type: object
+      required: [id, label, address, city]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, description: e.g. Main Kitchen }
+        address: { type: string }
+        city: { type: string }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+    BatchStatus:
+      type: string
+      enum: [PENDING_INSPECTION, AVAILABLE, PARTIALLY_ALLOCATED, FULLY_ALLOCATED, EXPIRED, WASTED, REJECTED]
+    FoodBatch:
+      type: object
+      required: [id, donorName, foodType, quantity, availableQuantity, unit, preparedAt, expiryAt, status, location, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        donorName: { type: string }
+        foodType: { $ref: '#/components/schemas/FoodType' }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        availableQuantity: { type: number, minimum: 0 }
+        unit: { $ref: '#/components/schemas/QuantityUnit' }
+        preparedAt: { type: string, format: date-time }
+        expiryAt: { type: string, format: date-time }
+        status: { $ref: '#/components/schemas/BatchStatus' }
+        location: { $ref: '#/components/schemas/Location' }
+        estimatedValue: { type: [number, 'null'], minimum: 0 }
+        createdAt: { type: string, format: date-time }
+    QuantityUnit:
+      type: string
+      enum: [PORTION, KG, G, L, PACK, UNIT]
+    Priority:
+      type: string
+      enum: [LOW, NORMAL, HIGH, URGENT]
+    FoodRequestStatus:
+      type: string
+      enum: [OPEN, PARTIALLY_FULFILLED, FULFILLED, CANCELLED, EXPIRED]
+    FoodRequest:
+      type: object
+      required: [id, foodType, requestedQuantity, fulfilledQuantity, unit, requiredBefore, priority, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        recipientName: { type: string }
+        foodType: { $ref: '#/components/schemas/FoodType' }
+        requestedQuantity: { type: number, exclusiveMinimum: 0 }
+        fulfilledQuantity: { type: number, minimum: 0 }
+        unit: { $ref: '#/components/schemas/QuantityUnit' }
+        requiredBefore: { type: string, format: date-time }
+        priority: { $ref: '#/components/schemas/Priority' }
+        status: { $ref: '#/components/schemas/FoodRequestStatus' }
+        notes: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    AllocationStatus:
+      type: string
+      enum: [CONFIRMED, PICKUP_SCHEDULED, PICKED_UP, DELIVERED, CANCELLED, FAILED]
+    Allocation:
+      type: object
+      required: [id, requestId, batchId, recipientName, foodName, quantity, unit, status, allocatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        requestId: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        recipientName: { type: string }
+        donorName: { type: string }
+        foodName: { type: string }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { $ref: '#/components/schemas/QuantityUnit' }
+        expirySnapshot: { type: string, format: date-time }
+        status: { $ref: '#/components/schemas/AllocationStatus' }
+        allocatedAt: { type: string, format: date-time }
+    PickupStatus:
+      type: string
+      enum: [SCHEDULED, ACCEPTED, PICKED_UP, DELIVERED, FAILED, CANCELLED]
+    Pickup:
+      type: object
+      required: [id, allocationId, volunteerName, vehicleNumber, scheduledAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        allocationId: { type: string, format: uuid }
+        volunteerName: { type: string }
+        vehicleNumber: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        pickedAt: { type: [string, 'null'], format: date-time }
+        deliveredAt: { type: [string, 'null'], format: date-time }
+        receivedQuantity: { type: [number, 'null'], minimum: 0 }
+        status: { $ref: '#/components/schemas/PickupStatus' }
+        notes: { type: [string, 'null'] }
+    Inspection:
+      type: object
+      required: [id, batchId, inspectedAt, passed, qualityScore]
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        inspectedAt: { type: string, format: date-time }
+        temperatureC: { type: [number, 'null'] }
+        qualityScore: { type: integer, minimum: 1, maximum: 5 }
+        passed: { type: boolean }
+        remarks: { type: [string, 'null'] }
+    CreateFoodBatchInput:
+      type: object
+      required: [foodTypeId, quantity, unit, preparedAt, expiryAt, locationId]
+      properties:
+        foodTypeId: { type: string, format: uuid }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { $ref: '#/components/schemas/QuantityUnit' }
+        preparedAt: { type: string, format: date-time }
+        expiryAt: { type: string, format: date-time }
+        locationId: { type: string, format: uuid }
+        estimatedValue: { type: number, minimum: 0 }
+        notes: { type: string, maxLength: 1000 }
+    CreateFoodRequestInput:
+      type: object
+      required: [foodTypeId, requestedQuantity, unit, requiredBefore, priority]
+      properties:
+        foodTypeId: { type: string, format: uuid }
+        requestedQuantity: { type: number, exclusiveMinimum: 0 }
+        unit: { $ref: '#/components/schemas/QuantityUnit' }
+        requiredBefore: { type: string, format: date-time }
+        priority: { $ref: '#/components/schemas/Priority' }
+        notes: { type: string, maxLength: 1000 }
+    InspectionInput:
+      type: object
+      required: [passed, qualityScore]
+      properties:
+        passed: { type: boolean }
+        temperatureC: { type: number }
+        qualityScore: { type: integer, minimum: 1, maximum: 5 }
+        remarks: { type: string, maxLength: 1000 }
+    CreateAllocationInput:
+      type: object
+      required: [requestId, batchId, quantity]
+      properties:
+        requestId: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        quantity: { type: number, exclusiveMinimum: 0 }
+    VolunteerOption:
+      type: object
+      required: [id, name, availabilityStatus]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        availabilityStatus: { type: string, enum: [AVAILABLE, ASSIGNED, OFF_DUTY] }
+    VehicleOption:
+      type: object
+      required: [id, vehicleNumber, vehicleType, capacity, refrigerated, status]
+      properties:
+        id: { type: string, format: uuid }
+        vehicleNumber: { type: string }
+        vehicleType: { type: string }
+        capacity: { type: number, minimum: 0 }
+        refrigerated: { type: boolean }
+        status: { type: string, enum: [AVAILABLE, IN_USE, MAINTENANCE] }
+    CreatePickupInput:
+      type: object
+      required: [allocationId, volunteerId, vehicleId, scheduledAt]
+      properties:
+        allocationId: { type: string, format: uuid }
+        volunteerId: { type: string, format: uuid }
+        vehicleId: { type: string, format: uuid }
+        scheduledAt: { type: string, format: date-time }
+        notes: { type: string, maxLength: 1000 }
+    UpdatePickupStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ACCEPTED, PICKED_UP, DELIVERED, FAILED]
+        pickedAt: { type: string, format: date-time }
+        deliveredAt: { type: string, format: date-time }
+        receivedQuantity: { type: number, minimum: 0 }
+        notes: { type: string, maxLength: 1000 }
+    DonorDashboard:
+      type: object
+      required: [totalBatches, totalQuantityDonated, availableBatches, deliveredBatches, wastageQuantity, recentBatches]
+      properties:
+        totalBatches: { type: integer }
+        totalQuantityDonated: { type: number }
+        availableBatches: { type: integer }
+        deliveredBatches: { type: integer }
+        wastageQuantity: { type: number }
+        recentBatches:
+          type: array
+          items: { $ref: '#/components/schemas/FoodBatch' }
+    RecipientDashboard:
+      type: object
+      required: [openRequests, fulfilledRequests, activeAllocations, recentRequests]
+      properties:
+        openRequests: { type: integer }
+        fulfilledRequests: { type: integer }
+        activeAllocations: { type: integer }
+        recentRequests:
+          type: array
+          items: { $ref: '#/components/schemas/FoodRequest' }
+    AdminDashboard:
+      type: object
+      required: [totalQuantityDonated, totalQuantityDelivered, activeDonors, activeRecipients, pendingInspections, expiringBatchCount, recentBatches, deliveryTrend]
+      properties:
+        totalQuantityDonated: { type: number }
+        totalQuantityDelivered: { type: number }
+        activeDonors: { type: integer }
+        activeRecipients: { type: integer }
+        pendingInspections: { type: integer }
+        expiringBatchCount: { type: integer }
+        recentBatches:
+          type: array
+          items: { $ref: '#/components/schemas/FoodBatch' }
+        deliveryTrend:
+          type: array
+          items:
+            type: object
+            required: [date, quantity]
+            properties:
+              date: { type: string, format: date }
+              quantity: { type: number }
+    AdminAnalytics:
+      type: object
+      required: [summary, deliveryTrend, categoryBreakdown, topDonors, wastageTrend]
+      properties:
+        summary:
+          type: object
+          required: [donatedQuantity, deliveredQuantity, wastedQuantity, fulfilmentRate]
+          properties:
+            donatedQuantity: { type: number }
+            deliveredQuantity: { type: number }
+            wastedQuantity: { type: number }
+            fulfilmentRate: { type: number, minimum: 0, maximum: 100 }
+        deliveryTrend:
+          type: array
+          items:
+            type: object
+            required: [date, quantity]
+            properties:
+              date: { type: string, format: date }
+              quantity: { type: number }
+        categoryBreakdown:
+          type: array
+          items:
+            type: object
+            required: [categoryName, quantity]
+            properties:
+              categoryName: { type: string }
+              quantity: { type: number }
+        topDonors:
+          type: array
+          items:
+            type: object
+            required: [donorName, quantity]
+            properties:
+              donorName: { type: string }
+              quantity: { type: number }
+        wastageTrend:
+          type: array
+          items:
+            type: object
+            required: [date, quantity]
+            properties:
+              date: { type: string, format: date }
+              quantity: { type: number }
+    PaginationMeta:
+      type: object
+      required: [page, pageSize, total, totalPages]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    PagedFoodBatchResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/FoodBatch' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PagedFoodRequestResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/FoodRequest' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PagedAllocationResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Allocation' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PagedPickupResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Pickup' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+        requestId: { type: string }
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Not authenticated or session expired
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Forbidden:
+      description: Authenticated, but role or ownership does not permit this operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Conflict:
+      description: Business-rule conflict, such as insufficient available quantity
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ValidationError:
+      description: Input failed field or business validation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ServiceUnavailable:
+      description: API or database unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }

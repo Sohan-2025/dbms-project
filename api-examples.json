@@ -1,0 +1,87 @@
+{
+  "loginRequest": {
+    "email": "donor.demo@replate.local",
+    "password": "provided-by-backend-developer"
+  },
+  "loginResponse": {
+    "data": {
+      "user": {
+        "id": "d7d1e1bb-59d4-459f-a6a3-6ea7f88f0a12",
+        "name": "Ayesha Khan",
+        "email": "donor.demo@replate.local",
+        "role": "DONOR",
+        "organizationName": "Campus Kitchen",
+        "avatarUrl": null
+      }
+    }
+  },
+  "createFoodBatchRequest": {
+    "foodTypeId": "33f0b92d-c234-42bf-a4e2-71fb58d46b37",
+    "quantity": 120,
+    "unit": "PORTION",
+    "preparedAt": "2026-10-28T15:30:00.000Z",
+    "expiryAt": "2026-10-28T19:30:00.000Z",
+    "locationId": "9a8f4264-270e-4972-8d16-11a00a7eb2b8",
+    "estimatedValue": 3600,
+    "notes": "Packed in sealed food-grade containers"
+  },
+  "createFoodBatchResponse": {
+    "data": {
+      "id": "4ea7aee0-00c8-45dc-92b2-0b99c7f12d0f",
+      "donorName": "Campus Kitchen",
+      "foodType": {
+        "id": "33f0b92d-c234-42bf-a4e2-71fb58d46b37",
+        "name": "Vegetable Biryani",
+        "category": { "id": "b0bf8e91-8a22-4cc0-9e46-8dc2be0fa644", "name": "Cooked Meals" },
+        "shelfLifeHours": 6,
+        "requiresRefrigeration": true,
+        "description": "Cooked rice meal",
+        "allergens": ["Milk"],
+        "storageRequirements": ["REFRIGERATED"]
+      },
+      "quantity": 120,
+      "availableQuantity": 120,
+      "unit": "PORTION",
+      "preparedAt": "2026-10-28T15:30:00.000Z",
+      "expiryAt": "2026-10-28T19:30:00.000Z",
+      "status": "PENDING_INSPECTION",
+      "location": {
+        "id": "9a8f4264-270e-4972-8d16-11a00a7eb2b8",
+        "label": "Main Kitchen",
+        "address": "Campus Road",
+        "city": "Vellore",
+        "latitude": 12.9716,
+        "longitude": 79.1591
+      },
+      "estimatedValue": 3600,
+      "createdAt": "2026-10-28T16:00:00.000Z"
+    }
+  },
+  "createFoodRequest": {
+    "foodTypeId": "33f0b92d-c234-42bf-a4e2-71fb58d46b37",
+    "requestedQuantity": 80,
+    "unit": "PORTION",
+    "requiredBefore": "2026-10-28T20:30:00.000Z",
+    "priority": "HIGH",
+    "notes": "Dinner service for 60-80 people"
+  },
+  "createAllocationRequest": {
+    "requestId": "74d1b3be-bcdb-4a1b-8153-9a4a246b65a0",
+    "batchId": "4ea7aee0-00c8-45dc-92b2-0b99c7f12d0f",
+    "quantity": 80
+  },
+  "errorResponse": {
+    "error": {
+      "code": "INSUFFICIENT_QUANTITY",
+      "message": "Only 40 PORTION remain available for this batch.",
+      "details": [
+        { "field": "quantity", "message": "Requested 80; available 40." }
+      ]
+    },
+    "requestId": "req_01JBDM4C7X7D8P0R3F9W"
+  },
+  "pagedResponse": {
+    "data": [],
+    "meta": { "page": 1, "pageSize": 20, "total": 0, "totalPages": 0 }
+  }
+}
